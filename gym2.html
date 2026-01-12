@@ -1,0 +1,586 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Gym Customer Handling — CSV Import + Reminders</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <style>
+    :root{--bg:#f4f4f4;--card:#fff;--accent:#28a745;--muted:#666;}
+    body{font-family:Arial,Helvetica,sans-serif;background:var(--bg);margin:0;padding:18px;color:#222}
+    .container{max-width:1100px;margin:0 auto}
+    h1{text-align:center;margin:6px 0 14px}
+    .grid{display:grid;grid-template-columns:1fr 320px;gap:16px}
+    @media(max-width:900px){.grid{grid-template-columns:1fr}}
+    .card{background:var(--card);padding:14px;border-radius:8px;box-shadow:0 0 10px rgba(0,0,0,0.06)}
+    label{display:block;margin-top:8px;font-weight:600}
+    input,select,textarea{width:100%;padding:8px;margin-top:6px;border:1px solid #100f0f;border-radius:6px;box-sizing:border-box}
+    .controls{display:flex;gap:8px;margin-top:12px}
+    button{padding:10px 12px;background:var(--accent);color:#e8ece9;border:none;border-radius:6px;cursor:pointer;font-weight:600}
+    button.ghost{background:transparent;color:var(--muted);border:1px solid #ddd}
+    .table-wrap{overflow:auto;margin-top:12px;border-radius:6px}
+    table{width:100%;border-collapse:collapse;background:var(--card)}
+    th,td{padding:10px;border-bottom:1px solid #dc0e0e;text-align:left;font-size:14px}
+    th{background:#333;color:#fff}
+    .actions{display:flex;gap:6px;justify-content:flex-end}
+    .pill{display:inline-block;padding:6px 8px;border-radius:999px;background:#f1f1f1;font-size:13px}
+    .status-active{color:#155724;background:#d4edda;padding:4px 8px;border-radius:6px;font-weight:600}
+    .status-expiring{color:#856404;background:#fff3cd;padding:4px 8px;border-radius:6px;font-weight:600}
+    .status-expired{color:#721c24;background:#f8d7da;padding:4px 8px;border-radius:6px;font-weight:600}
+    .notice{padding:10px;border-radius:6px;margin-bottom:10px}
+    .notice.warn{background:#fff3cd;color:#856404}
+    .notice.info{background:#d1ecf1;color:#0c5460}
+    .small{font-size:13px;padding:6px 8px;border-radius:6px}
+    .filter-row{display:flex;gap:8px;align-items:center;margin-top:8px}
+    .import-errors{max-height:200px;overflow:auto;padding:8px;border:1px solid #eee;background:#fff;border-radius:6px;margin-top:8px}
+    .muted{color:var(--muted);font-size:13px}
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Gym Customer Handling System</h1>
+
+    <div class="grid">
+      <div class="card" aria-labelledby="formTitle">
+        <h2 id="formTitle">Register / Edit Customer</h2>
+        <form id="customerForm" novalidate>
+          <label for="name">Full Name</label>
+          <input id="name" name="name" type="text" required>
+
+          <label for="age">Age</label>
+          <input id="age" name="age" type="number" min="10" max="100" required>
+
+          <label for="membership">Membership Type</label>
+          <select id="membership" name="membership" required>
+            <option value="">--Select--</option>
+            <option value="Monthly">Monthly</option>
+            <option value="Quarterly">Quarterly</option>
+            <option value="Yearly">Yearly</option>
+          </select>
+
+          <label for="startDate">Start Date</label>
+          <input id="startDate" name="startDate" type="date" required>
+
+          <label for="contact">Contact Number</label>
+          <input id="contact" name="contact" type="tel" pattern="^[0-9]{7,15}$" placeholder="Digits only" required>
+
+          <div class="controls">
+            <button id="addBtn" type="submit">Add Customer</button>
+            <button id="updateBtn" type="button" class="ghost" style="display:none">Update</button>
+            <button id="cancelEdit" type="button" class="ghost" style="display:none">Cancel</button>
+          </div>
+
+          <div id="formError" class="notice warn" style="display:none" role="status" aria-live="polite"></div>
+        </form>
+
+        <div style="margin-top:12px">
+          <div class="filter-row">
+            <input id="search" type="search" placeholder="Search by name, membership, contact" style="flex:1;padding:8px;border-radius:6px;border:1px solid #ccc">
+            <select id="viewFilter" style="width:160px;padding:8px;border-radius:6px;border:1px solid #ccc">
+              <option value="all">All</option>
+              <option value="expiring">Expiring soon</option>
+              <option value="expired">Expired</option>
+              <option value="active">Active</option>
+            </select>
+          </div>
+
+          <div style="display:flex;gap:8px;margin-top:8px;align-items:center">
+            <label style="margin:0;font-weight:600">Remind before (days):</label>
+            <input id="remindDays" type="number" min="1" max="30" value="7" style="width:80px;padding:8px;border-radius:6px;border:1px solid #ccc">
+            <button id="enableNotif" class="small">Enable Browser Notifications</button>
+          </div>
+
+          <div style="margin-top:10px">
+            <label style="font-weight:600">CSV Import</label>
+            <input id="csvFile" type="file" accept=".csv,text/csv">
+            <div class="muted" style="margin-top:6px">CSV columns accepted: Name,Age,Membership,StartDate,Contact. Date format yyyy-mm-dd. Membership values Monthly Quarterly Yearly.</div>
+            <button id="importBtn" class="small" style="margin-top:8px">Import CSV</button>
+            <div id="importResult" class="import-errors" style="display:none"></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="card" aria-labelledby="statsTitle">
+        <h2 id="statsTitle">Summary</h2>
+        <p><strong>Total customers:</strong> <span id="totalCount" class="pill">0</span></p>
+        <p><strong>Monthly:</strong> <span id="countMonthly" class="pill">0</span></p>
+        <p><strong>Quarterly:</strong> <span id="countQuarterly" class="pill">0</span></p>
+        <p><strong>Yearly:</strong> <span id="countYearly" class="pill">0</span></p>
+        <p style="margin-top:8px"><strong>Expiring within days:</strong> <span id="expiringSoonCount" class="pill">0</span></p>
+      </div>
+    </div>
+
+    <h2 style="margin-top:18px">Customer List</h2>
+    <div class="table-wrap card" aria-live="polite">
+      <table id="customerTable" role="table">
+        <thead>
+          <tr>
+            <th>Name</th>
+            <th>Age</th>
+            <th>Membership</th>
+            <th>Start Date</th>
+            <th>Expiry Date</th>
+            <th>Status</th>
+            <th style="text-align:right">Actions</th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+    </div>
+  </div>
+
+  <script>
+    // Elements
+    const form = document.getElementById('customerForm');
+    const nameInput = document.getElementById('name');
+    const ageInput = document.getElementById('age');
+    const membershipInput = document.getElementById('membership');
+    const startDateInput = document.getElementById('startDate');
+    const contactInput = document.getElementById('contact');
+    const tableBody = document.querySelector('#customerTable tbody');
+    const formError = document.getElementById('formError');
+    const searchInput = document.getElementById('search');
+    const viewFilter = document.getElementById('viewFilter');
+    const remindDaysInput = document.getElementById('remindDays');
+    const importBtn = document.getElementById('importBtn');
+    const csvFileInput = document.getElementById('csvFile');
+    const importResult = document.getElementById('importResult');
+    const enableNotifBtn = document.getElementById('enableNotif');
+
+    const totalCountEl = document.getElementById('totalCount');
+    const countMonthlyEl = document.getElementById('countMonthly');
+    const countQuarterlyEl = document.getElementById('countQuarterly');
+    const countYearlyEl = document.getElementById('countYearly');
+    const expiringSoonCountEl = document.getElementById('expiringSoonCount');
+
+    const addBtn = document.getElementById('addBtn');
+    const updateBtn = document.getElementById('updateBtn');
+    const cancelEditBtn = document.getElementById('cancelEdit');
+
+    const STORAGE_KEY = 'gym_customers_v3';
+    let customers = [];
+    let editingId = null;
+    let notificationsEnabled = false;
+
+    // Date helpers
+    function parseDate(s) {
+      if (!s) return null;
+      const parts = s.split('-');
+      if (parts.length !== 3) return null;
+      const d = new Date(Number(parts[0]), Number(parts[1]) - 1, Number(parts[2]));
+      if (isNaN(d)) return null;
+      return d;
+    }
+    function formatDate(d) {
+      if (!d) return '';
+      const y = d.getFullYear();
+      const m = String(d.getMonth() + 1).padStart(2, '0');
+      const day = String(d.getDate()).padStart(2, '0');
+      return `${y}-${m}-${day}`;
+    }
+    function calculateExpiry(startDateStr, membership) {
+      const start = parseDate(startDateStr);
+      if (!start) return null;
+      const d = new Date(start.getTime());
+      if (membership === 'Monthly') d.setMonth(d.getMonth() + 1);
+      else if (membership === 'Quarterly') d.setMonth(d.getMonth() + 3);
+      else if (membership === 'Yearly') d.setFullYear(d.getFullYear() + 1);
+      d.setDate(d.getDate() - 1);
+      return d;
+    }
+
+    // Storage
+    function load() {
+      try {
+        const raw = localStorage.getItem(STORAGE_KEY);
+        customers = raw ? JSON.parse(raw) : [];
+      } catch (e) {
+        customers = [];
+      }
+    }
+    function save() {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(customers));
+    }
+
+    // Status
+    function getStatus(c, remindDays) {
+      const today = new Date(); today.setHours(0,0,0,0);
+      const expiry = parseDate(c.expiryDate);
+      if (!expiry) return { key: 'unknown', label: 'Unknown' };
+      const diffMs = expiry - today;
+      const diffDays = Math.ceil(diffMs / (1000*60*60*24));
+      if (diffDays < 0) return { key: 'expired', label: 'Expired' };
+      if (diffDays <= remindDays) return { key: 'expiring', label: `Expiring in ${diffDays} day(s)` };
+      return { key: 'active', label: 'Active' };
+    }
+
+    // Render
+    function render() {
+      tableBody.innerHTML = '';
+      const q = searchInput.value.trim().toLowerCase();
+      const filter = viewFilter.value;
+      const remindDays = Number(remindDaysInput.value) || 7;
+
+      const filtered = customers.filter(c => {
+        if (q) {
+          const hay = [c.name, String(c.age), c.membership, c.contact, c.startDate, c.expiryDate].join(' ').toLowerCase();
+          if (!hay.includes(q)) return false;
+        }
+        const status = getStatus(c, remindDays).key;
+        if (filter === 'expiring' && status !== 'expiring') return false;
+        if (filter === 'expired' && status !== 'expired') return false;
+        if (filter === 'active' && status !== 'active') return false;
+        return true;
+      });
+
+      filtered.forEach(c => {
+        const statusObj = getStatus(c, remindDays);
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+          <td>${escapeHtml(c.name)}</td>
+          <td>${escapeHtml(c.age)}</td>
+          <td>${escapeHtml(c.membership)}</td>
+          <td>${escapeHtml(c.startDate)}</td>
+          <td>${escapeHtml(c.expiryDate)}</td>
+          <td>${statusHtml(statusObj)}</td>
+          <td style="text-align:right">
+            <div class="actions">
+              <button class="small" data-action="edit" data-id="${c.id}">Edit</button>
+              <button class="small" data-action="delete" data-id="${c.id}">Delete</button>
+            </div>
+          </td>
+        `;
+        tableBody.appendChild(tr);
+      });
+
+      updateSummary(remindDays);
+      checkReminders(remindDays);
+    }
+
+    function statusHtml(statusObj) {
+      if (statusObj.key === 'active') return `<span class="status-active">Active</span>`;
+      if (statusObj.key === 'expiring') return `<span class="status-expiring">${escapeHtml(statusObj.label)}</span>`;
+      if (statusObj.key === 'expired') return `<span class="status-expired">Expired</span>`;
+      return `<span>${escapeHtml(statusObj.label)}</span>`;
+    }
+
+    function updateSummary(remindDays) {
+      totalCountEl.textContent = customers.length;
+      countMonthlyEl.textContent = customers.filter(c => c.membership === 'Monthly').length;
+      countQuarterlyEl.textContent = customers.filter(c => c.membership === 'Quarterly').length;
+      countYearlyEl.textContent = customers.filter(c => c.membership === 'Yearly').length;
+      expiringSoonCountEl.textContent = customers.filter(c => getStatus(c, remindDays).key === 'expiring').length;
+    }
+
+    // CRUD
+    function addCustomer(data) {
+      const id = Date.now().toString(36) + Math.random().toString(36).slice(2,8);
+      customers.push({ id, ...data });
+      save();
+      render();
+    }
+    function updateCustomer(id, data) {
+      const idx = customers.findIndex(c => c.id === id);
+      if (idx !== -1) {
+        customers[idx] = { id, ...data };
+        save();
+        render();
+      }
+    }
+    function deleteCustomer(id) {
+      customers = customers.filter(c => c.id !== id);
+      save();
+      render();
+    }
+
+    function escapeHtml(s) {
+      return String(s).replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
+    }
+
+    // Validation and build
+    function validateAndBuild() {
+      formError.style.display = 'none';
+      const name = nameInput.value.trim();
+      const age = Number(ageInput.value);
+      const membership = membershipInput.value;
+      const startDate = startDateInput.value;
+      const contact = contactInput.value.trim();
+
+      if (!name) return showError('Please enter full name.');
+      if (!Number.isFinite(age) || age < 10 || age > 100) return showError('Please enter a valid age between 10 and 100.');
+      if (!membership) return showError('Please select a membership type.');
+      if (!startDate) return showError('Please select a start date.');
+      if (!/^[0-9]{7,15}$/.test(contact)) return showError('Contact must be 7 to 15 digits.');
+
+      const expiry = calculateExpiry(startDate, membership);
+      if (!expiry) return showError('Could not calculate expiry date.');
+      const expiryStr = formatDate(expiry);
+
+      return { name, age, membership, startDate, expiryDate: expiryStr, contact };
+    }
+    function showError(msg) {
+      formError.textContent = msg;
+      formError.style.display = 'block';
+      return null;
+    }
+
+    // Form submit
+    form.addEventListener('submit', function(e) {
+      e.preventDefault();
+      const data = validateAndBuild();
+      if (!data) return;
+      if (editingId) {
+        updateCustomer(editingId, data);
+        stopEditing();
+      } else {
+        addCustomer(data);
+      }
+      form.reset();
+      nameInput.focus();
+    });
+
+    // Table actions
+    tableBody.addEventListener('click', function(e) {
+      const btn = e.target.closest('button');
+      if (!btn) return;
+      const action = btn.dataset.action;
+      const id = btn.dataset.id;
+      if (action === 'edit') startEditing(id);
+      else if (action === 'delete') {
+        if (confirm('Delete this customer?')) deleteCustomer(id);
+      }
+    });
+
+    function startEditing(id) {
+      const c = customers.find(x => x.id === id);
+      if (!c) return;
+      editingId = id;
+      nameInput.value = c.name;
+      ageInput.value = c.age;
+      membershipInput.value = c.membership;
+      startDateInput.value = c.startDate;
+      contactInput.value = c.contact;
+      addBtn.style.display = 'none';
+      updateBtn.style.display = '';
+      cancelEditBtn.style.display = '';
+      updateBtn.onclick = () => {
+        const data = validateAndBuild();
+        if (!data) return;
+        updateCustomer(editingId, data);
+        stopEditing();
+        form.reset();
+      };
+      cancelEditBtn.onclick = () => { stopEditing(); form.reset(); };
+      nameInput.focus();
+    }
+    function stopEditing() {
+      editingId = null;
+      addBtn.style.display = '';
+      updateBtn.style.display = 'none';
+      cancelEditBtn.style.display = 'none';
+      formError.style.display = 'none';
+    }
+
+    // Search & filter
+    searchInput.addEventListener('input', render);
+    viewFilter.addEventListener('change', render);
+    remindDaysInput.addEventListener('change', render);
+
+    // Reminders and notifications
+    function checkReminders(remindDays) {
+      const expiring = customers.filter(c => getStatus(c, remindDays).key === 'expiring');
+      if (expiring.length) {
+        // show banner in summary area by updating expiring count; notifications below
+        if (notificationsEnabled) {
+          expiring.forEach(c => {
+            notify(`Membership expiring: ${c.name}`, `Expiry: ${c.expiryDate} (${c.membership})`);
+          });
+        }
+      }
+    }
+    function notify(title, body) {
+      if (!('Notification' in window)) return;
+      if (Notification.permission === 'granted') {
+        new Notification(title, { body });
+      }
+    }
+    enableNotifBtn.addEventListener('click', async () => {
+      if (!('Notification' in window)) {
+        alert('Browser notifications are not supported in this browser.');
+        return;
+      }
+      const perm = await Notification.requestPermission();
+      if (perm === 'granted') {
+        notificationsEnabled = true;
+        enableNotifBtn.textContent = 'Notifications enabled';
+        enableNotifBtn.disabled = true;
+        render();
+      } else {
+        alert('Notifications permission denied.');
+      }
+    });
+
+    // CSV import
+    // Expected header names (case-insensitive): Name, Age, Membership, StartDate, Contact
+    importBtn.addEventListener('click', () => {
+      importResult.style.display = 'none';
+      importResult.innerHTML = '';
+      const file = csvFileInput.files[0];
+      if (!file) {
+        showImportMessage('Please choose a CSV file to import.', true);
+        return;
+      }
+      const reader = new FileReader();
+      reader.onload = () => {
+        const text = reader.result;
+        handleCsvText(text);
+      };
+      reader.onerror = () => {
+        showImportMessage('Failed to read file.', true);
+      };
+      reader.readAsText(file);
+    });
+
+    function handleCsvText(text) {
+      const lines = text.split(/\r\n|\n/).filter(l => l.trim() !== '');
+      if (!lines.length) {
+        showImportMessage('CSV is empty.', true);
+        return;
+      }
+      const header = parseCsvLine(lines[0]);
+      const map = mapHeaders(header);
+      if (!map) {
+        showImportMessage('CSV header must include Name, Age, Membership, StartDate, Contact.', true);
+        return;
+      }
+      const rows = lines.slice(1);
+      const errors = [];
+      const imported = [];
+      rows.forEach((line, idx) => {
+        const cols = parseCsvLine(line);
+        // allow rows shorter than header
+        const rowObj = {};
+        header.forEach((h, i) => rowObj[h] = cols[i] !== undefined ? cols[i].trim() : '');
+        const name = rowObj[map.Name] || '';
+        const ageStr = rowObj[map.Age] || '';
+        const membership = rowObj[map.Membership] || '';
+        const startDate = rowObj[map.StartDate] || '';
+        const contact = rowObj[map.Contact] || '';
+
+        const rowNum = idx + 2;
+        if (!name) { errors.push(`Row ${rowNum}: Name is required.`); return; }
+        const age = Number(ageStr);
+        if (!Number.isFinite(age) || age < 10 || age > 100) { errors.push(`Row ${rowNum}: Age must be a number between 10 and 100.`); return; }
+        if (!['Monthly','Quarterly','Yearly'].includes(membership)) { errors.push(`Row ${rowNum}: Membership must be Monthly, Quarterly, or Yearly.`); return; }
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(startDate) || !parseDate(startDate)) { errors.push(`Row ${rowNum}: StartDate must be yyyy-mm-dd.`); return; }
+        if (!/^[0-9]{7,15}$/.test(contact)) { errors.push(`Row ${rowNum}: Contact must be 7 to 15 digits.`); return; }
+
+        const expiry = calculateExpiry(startDate, membership);
+        if (!expiry) { errors.push(`Row ${rowNum}: Could not calculate expiry.`); return; }
+
+        imported.push({
+          name: name,
+          age: age,
+          membership: membership,
+          startDate: startDate,
+          expiryDate: formatDate(expiry),
+          contact: contact
+        });
+      });
+
+      if (errors.length) {
+        showImportMessage(`Import completed with ${imported.length} valid row(s) and ${errors.length} error(s).`, false, errors, imported);
+      } else {
+        // merge imported
+        imported.forEach(r => addCustomer(r));
+        showImportMessage(`Import successful. ${imported.length} customer(s) added.`, false);
+      }
+    }
+
+    function parseCsvLine(line) {
+      // simple CSV parser supporting quoted fields with commas
+      const res = [];
+      let cur = '';
+      let inQuotes = false;
+      for (let i = 0; i < line.length; i++) {
+        const ch = line[i];
+        if (ch === '"' ) {
+          if (inQuotes && line[i+1] === '"') { cur += '"'; i++; }
+          else inQuotes = !inQuotes;
+        } else if (ch === ',' && !inQuotes) {
+          res.push(cur);
+          cur = '';
+        } else {
+          cur += ch;
+        }
+      }
+      res.push(cur);
+      return res.map(s => s.trim());
+    }
+
+    function mapHeaders(headerArr) {
+      const map = {};
+      const normalized = headerArr.map(h => h.trim().toLowerCase());
+      const idxOf = (names) => {
+        for (const n of names) {
+          const i = normalized.indexOf(n.toLowerCase());
+          if (i !== -1) return headerArr[i];
+        }
+        return null;
+      };
+      const nameH = idxOf(['name','full name','fullname']);
+      const ageH = idxOf(['age']);
+      const membershipH = idxOf(['membership','membership type']);
+      const startDateH = idxOf(['startdate','start date','start_date','date']);
+      const contactH = idxOf(['contact','contact number','phone','phone number']);
+      if (!nameH || !ageH || !membershipH || !startDateH || !contactH) return null;
+      map.Name = nameH; map.Age = ageH; map.Membership = membershipH; map.StartDate = startDateH; map.Contact = contactH;
+      return map;
+    }
+
+    function showImportMessage(message, isError = false, errors = [], imported = []) {
+      importResult.style.display = 'block';
+      importResult.innerHTML = `<div style="font-weight:600;margin-bottom:6px">${escapeHtml(message)}</div>`;
+      if (errors && errors.length) {
+        const ul = document.createElement('ul');
+        errors.slice(0,200).forEach(err => {
+          const li = document.createElement('li');
+          li.textContent = err;
+          ul.appendChild(li);
+        });
+        importResult.appendChild(ul);
+      }
+      if (imported && imported.length) {
+        const note = document.createElement('div');
+        note.style.marginTop = '8px';
+        note.textContent = `${imported.length} valid row(s) ready to add. Click 'Confirm Import' to add them to the list.`;
+        importResult.appendChild(note);
+        const confirmBtn = document.createElement('button');
+        confirmBtn.textContent = 'Confirm Import';
+        confirmBtn.style.marginTop = '8px';
+        confirmBtn.onclick = () => {
+          imported.forEach(r => addCustomer(r));
+          importResult.innerHTML = `<div style="font-weight:600">Imported ${imported.length} customer(s).</div>`;
+        };
+        importResult.appendChild(confirmBtn);
+      }
+    }
+
+    // Accessibility: Enter on search focuses first action
+    searchInput.addEventListener('keydown', function(e) {
+      if (e.key === 'Enter') {
+        const firstBtn = tableBody.querySelector('button');
+        if (firstBtn) firstBtn.focus();
+      }
+    });
+
+    // Initialize
+    load();
+    render();
+
+    // Clear form error on input
+    [nameInput, ageInput, membershipInput, startDateInput, contactInput].forEach(el => {
+      el.addEventListener('input', () => { formError.style.display = 'none'; });
+    });
+  </script>
+</body>
+</html>
